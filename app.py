@@ -6,8 +6,9 @@ import matplotlib.pyplot as plt
 from pyvis.network import Network
 import json
 import os
+import pandas as pd
 from openai import OpenAI
-
+from code_editor import code_editor
 # Setting the API key
 
 
@@ -17,7 +18,7 @@ from openai import OpenAI
 def get_assistant_response(messages):
     client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     r = client.chat.completions.create(
-        model="gpt-3.5-turbo",
+        model="gpt-4o-mini",
         messages=[{"role": m["role"], "content": m["content"]} for m in messages],
     )
     response = r.choices[0].message.content
@@ -36,10 +37,31 @@ def get_all_node_properties_with_labels(tx,label):
         """
     result = tx.run(query)
     return list(set([record["properties"] for record in result if (record['properties'])]))
-
+def get_statistics(tx):
+    result = tx.run("""// Total row
+                    MATCH (n)
+                    RETURN 'Total' AS Label, count(n) AS NodeCount
+                    UNION
+                    // Node count per label
+                    MATCH (n)
+                    RETURN labels(n) AS Label, count(n) AS NodeCount
+                    ORDER BY NodeCount DESC
+                    """).to_df()
+    return result 
 def get_node_labels(tx):
     result = tx.run("MATCH (n) RETURN DISTINCT labels(n) AS labels")
     return list(set([record["labels"][0] for record in result if record["labels"]]))
+
+def get_property_counts(tx,label):
+    result = tx.run(f"""CALL db.schema.nodeTypeProperties() YIELD propertyName
+        WITH propertyName
+        MATCH (n:`{label}`)
+        WHERE n[propertyName] IS NOT NULL
+        RETURN propertyName, COUNT(DISTINCT n[propertyName]) AS uniqueCount
+        ORDER BY propertyName""").to_df()
+    result['Label'] = label
+    return result
+
 
 # Function to query relationships between node labels
 def get_relationship_types(tx):
@@ -61,6 +83,8 @@ def get_relationship_count(tx):
 def get_node_labels(tx):
     result = tx.run("MATCH (n) RETURN DISTINCT labels(n) AS labels")
     return [record["labels"][0] for record in result if record["labels"]]
+
+
 
 # Function to query relationships between node labels
 
@@ -89,6 +113,29 @@ def get_relationship_pairs(tx, relationship_type):
     return list(set([(record["start_label"], record["end_label"]) for record in result]))
 
 # Streamlit app title
+
+def run_cypher_query(query):
+    try:
+        with driver.session() as session:
+            result = session.run(query)
+            # Collect all records into a list
+            records = [record.data() for record in result]
+            return records
+    except Exception as e:
+        # Return None in case of an error
+        return None
+    
+def explain_cypher_query(query):
+    try:
+        with driver.session() as session:
+            result = session.run("EXPLAIN " + query)
+            # Collect all records into a list
+            records = result
+            return records
+    except Exception as e:
+        # Return None in case of an error
+        return None
+
 st.title("Neo4j Database Schema Visualization (with Neo4j Driver)")
 
 # Neo4j connection details
@@ -102,16 +149,17 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
     try:
         # Establish connection to Neo4j using the official driver
         driver = create_driver(uri, username, password)
-        st.success("Connection successfull!")
 
-        st.session_state["connected"] = True
-
+        
         with driver.session() as session:
             # Get node labels and relationships
+            st.success("Connection successfull!")
+
+            st.session_state["connected"] = True
             node_count = session.execute_read(get_node_count)
             relationship_count = session.execute_read(get_relationship_count)
+            statistics = session.execute_read(get_statistics)
             node_labels = list(set(session.execute_read(get_node_labels)))
-
             #Display cards with the graph statistics
             st.subheader("Graph Statistics")
             col1, col2, col3 = st.columns(3)
@@ -135,6 +183,10 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
             #st.subheader("Relationship names")
             #st.write(", ".join(relationships))
 
+            node_labels = sorted(node_labels)
+            node_properties_labels = []
+            relationships = session.execute_read(get_relationship_types)
+
             #Create a NetworkX graph for schema
             G = nx.DiGraph()
 
@@ -150,8 +202,35 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
                     all_relationships.append(f"{start_label} --[:{rel}]--> {end_label}")
 
                     G.add_edge(start_label, end_label, label=rel)
-            st.subheader("Relationship list")
-            st.write(all_relationships)
+
+            label_dict = {}
+            all_labels_df = pd.DataFrame()
+            with st.spinner('Distilling the graph...'):
+                for label in node_labels:
+                    #label_df = session.execute_read(get_property_counts,label)
+                    #all_labels_df = pd.concat([all_labels_df,label_df])
+                    node_properties_labels = list(set(session.execute_read(get_all_node_properties_with_labels,label)))
+                    label_dict[label] = {}
+                    label_dict[label]['properties'] = sorted(node_properties_labels)
+                    label_dict[label]['outgoing_relations'] = sorted([item for item in all_relationships if item.startswith(label)])
+                    label_dict[label]['ingoing_relations'] = sorted([item for item in all_relationships if item.endswith(label) if not item.startswith(label)])
+            st.subheader("Schema Overview")
+            st.write(label_dict)
+            label_json = json.dumps(label_dict)
+
+
+            #Display cards with the graph statistics
+            st.subheader("Graph Statistics")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Number of Nodes", node_count)
+            col2.metric("Number of Relationships", relationship_count)
+            col3.metric("Entity Types", len(node_labels))
+            col1, col2 = st.columns(2)
+
+            # List entity (node) names
+            col1.write(statistics)
+            #col2.write(all_labels_df)
+
         #Plot the graph using NetworkX and matplotlib
         plt.figure(figsize=(8, 6))
         pos = nx.spring_layout(G)
@@ -188,25 +267,49 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
         #Call the function to visualize
         #visualize_graph(G)
         prompts = [f"""Generate a neo4j cypher query corresponding to the natural language question given by the user. Only return formatted Cypher queries. Keep in mind you can only use the following nodes, edges, relationships and properties:
-                   For each node label, use only the following properties:
+                   For each node label, use only the following properties and relationships:
                    {label_json}
-                   Only use the following relationships:
-                   {relationships}
+
+                   Example:
+                   User : provide me last names of representatives of canton ZH.
+                   Model : MATCH (canton:Canton {{abbrev: 'ZH'}})<-[:REPRESENTS]-(person:Person)
+                    RETURN person.first_name, person.last_name
+
                    """
                    ]
         st.session_state['llm_messages'] = [{"role": "system", "content": prompts[0]},]
 
         def process_user_input():
-            template_query = "MATCH ()-[r]->() RETURN DISTINCT type(r) AS relationship"
             user_input = st.session_state["user_input"]
-            st.session_state['llm_messages'].append({"role": "user", "content" : user_input})
+            st.session_state['llm_messages'].append({"role": "user", "content" : user_input + f"Write only the query with no formatting, use only the schema available here: \n{label_json}" })
             output = get_assistant_response(st.session_state['llm_messages'])
-            st.session_state["output"] = template_query + "\n" + output
-        with st.spinner('Wait for it...'):
+            st.session_state["output"] = output
+        with st.spinner('Asking ChatGPT...'):
             st.text_area(label="User Input", placeholder="Enter stuff here", key="user_input", on_change=process_user_input)
             if "output" in st.session_state:
                 st.code(st.session_state["output"],language="cypher")
+                # Button to run the query
+                if st.button("Run Query"):
+                    # Save clicked status in the session state
+                    st.session_state['query_clicked'] = True
+                
+                    # Check if the button was clicked
+                    if st.session_state.get('query_clicked'):
+                        # Run the query and get the result
+                        try:
+                            result = run_cypher_query(st.session_state["output"])
+                        except Exception as e:
+                            raise e                    
+                        # Handle different cases based on the query result
+                        if result is None:
+                            st.error("Oh no, an error occurred while running the query.")
+                        elif len(result) == 0:
+                            st.warning("Oh no, empty list!")
+                        else:
+                            st.write(result)
+
+
         driver.close()
-    
     except Exception as e:
         st.error(f"Failed to connect to Neo4j: {str(e)}")
+        raise e
