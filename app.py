@@ -4,7 +4,7 @@ from neo4j import GraphDatabase
 import networkx as nx
 import matplotlib.pyplot as plt
 from pyvis.network import Network
-
+import json
 import os
 from openai import OpenAI
 
@@ -29,13 +29,13 @@ def create_driver(uri, user, password):
     return GraphDatabase.driver(uri, auth=(user, password))
 def get_all_node_properties_with_labels(tx,label):
     query = f"""
-        MATCH (n:{label})
+        MATCH (n:`{label}`)
         WITH DISTINCT keys(n) AS propertyKeys
         UNWIND propertyKeys AS key
-        RETURN DISTINCT key AS uniquePropertyNames
+        RETURN DISTINCT key AS properties
         """
     result = tx.run(query)
-    return list(set([record["labels"][0] + "_" + "_".join(list(record["properties"].keys()))   for record in result if (record["labels"] and record['properties'])]))
+    return list(set([record["properties"] for record in result if (record['properties'])]))
 
 def get_node_labels(tx):
     result = tx.run("MATCH (n) RETURN DISTINCT labels(n) AS labels")
@@ -63,6 +63,18 @@ def get_node_labels(tx):
     return [record["labels"][0] for record in result if record["labels"]]
 
 # Function to query relationships between node labels
+
+def get_properties(tx):
+    result = tx.run("""CALL db.schema.nodeTypeProperties()
+        YIELD nodeLabels, propertyName
+        WITH nodeLabels[0] AS label, COLLECT(propertyName) AS properties
+        RETURN {
+        type: 'entity',
+        label: label,
+        properties: properties
+        } AS schema
+        ORDER BY label""")
+    return list(set([record["label"] + "_" + "_".join(record['properties']) for record in result if (record['label'] and record['properties'])]))
 def get_relationship_types(tx):
     result = tx.run("MATCH ()-[r]->() RETURN DISTINCT type(r) AS relationship")
     return list(set([record["relationship"] for record in result]))
@@ -99,9 +111,14 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
             node_count = session.execute_read(get_node_count)
             
             relationship_count = session.execute_read(get_relationship_count)
-            node_labels = session.execute_read(get_node_labels)
-            #node_properties_labels = session.execute_read(get_all_node_properties_with_labels)
-
+            node_labels = list(set(session.execute_read(get_node_labels)))
+            node_properties_labels = []
+            label_dict = {}
+            for label in node_labels:
+                node_properties_labels = list(set(session.execute_read(get_all_node_properties_with_labels,label)))
+                label_dict[label] = node_properties_labels
+            st.write(label_dict)
+            label_json = json.dumps(label_dict)
             relationships = session.execute_read(get_relationship_types)
 
             #Display cards with the graph statistics
@@ -113,10 +130,9 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
 
             # List entity (node) names
             st.subheader("Entity Names")
-            st.write(", ".join(node_labels))
-            #st.write(node_properties_labels)
-            st.subheader("Relationship names")
-            st.write(", ".join(relationships))
+
+            #st.subheader("Relationship names")
+            #st.write(", ".join(relationships))
 
             #Create a NetworkX graph for schema
             G = nx.DiGraph()
@@ -169,10 +185,11 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
 
                 components.html(HtmlFile.read(), height=435)
         #Call the function to visualize
-        visualize_graph(G)
+        #visualize_graph(G)
         prompts = [f"""Generate a neo4j cypher query corresponding to the natural language question given by the user. Only return formatted Cypher queries. Keep in mind you can only use the following nodes, edges, relationships and properties:
-                   {node_labels}
-                   {all_relationships}
+                   For each node label, use only the following properties:
+                   {label_json}
+                   Only use the following relationships:
                    {relationships}
                    """
                    ]
