@@ -87,6 +87,7 @@ def get_relationship_pairs(tx, relationship_type):
     """
     result = tx.run(query)
     return list(set([(record["start_label"], record["end_label"]) for record in result]))
+
 # Streamlit app title
 st.title("Neo4j Database Schema Visualization (with Neo4j Driver)")
 
@@ -104,22 +105,12 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
         st.success("Connection successfull!")
 
         st.session_state["connected"] = True
-        
+
         with driver.session() as session:
             # Get node labels and relationships
-
             node_count = session.execute_read(get_node_count)
-            
             relationship_count = session.execute_read(get_relationship_count)
             node_labels = list(set(session.execute_read(get_node_labels)))
-            node_properties_labels = []
-            label_dict = {}
-            for label in node_labels:
-                node_properties_labels = list(set(session.execute_read(get_all_node_properties_with_labels,label)))
-                label_dict[label] = node_properties_labels
-            st.write(label_dict)
-            label_json = json.dumps(label_dict)
-            relationships = session.execute_read(get_relationship_types)
 
             #Display cards with the graph statistics
             st.subheader("Graph Statistics")
@@ -128,8 +119,18 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
             col2.metric("Number of Relationships", relationship_count)
             col3.metric("Entity Types", len(node_labels))
 
+
             # List entity (node) names
             st.subheader("Entity Names")
+
+            node_properties_labels = []
+            label_dict = {}
+            for label in node_labels:
+                node_properties_labels = list(set(session.execute_read(get_all_node_properties_with_labels,label)))
+                label_dict[label] = node_properties_labels
+            st.write(label_dict)
+            label_json = json.dumps(label_dict)
+            relationships = session.execute_read(get_relationship_types)
 
             #st.subheader("Relationship names")
             #st.write(", ".join(relationships))
