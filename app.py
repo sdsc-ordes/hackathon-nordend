@@ -298,37 +298,65 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
                    """]
         st.session_state['llm_messages'] = [{"role": "system", "content": prompts[0]},]
 
-        def process_user_input():
-            user_input = st.session_state["user_input"]
-            st.session_state['llm_messages'].append({"role": "user", "content" : user_input + f"Write only the query with no formatting, use only the schema available here: \n{label_json}" })
-            output = get_assistant_response(st.session_state['llm_messages'])
-            st.session_state["output"] = output.strip("`")
-        with st.spinner('Asking ChatGPT...'):
-            st.text_area(label="User Input", placeholder="Enter stuff here", key="user_input", on_change=process_user_input)
-            if "output" in st.session_state:
-                response_dict = code_editor(st.session_state["output"],lang="sql", key='code', allow_reset=True)
+        def process_query(use_llm=True):
+
+            if use_llm:
+                key_suffix = "_llm"
+                query_label = "Insert your query:"
+                button_label = "Run default query"
+            else:
+                key_suffix = ""
+                query_label = "Insert your Cypher query:"
+                button_label = "Run your Cypher query"
+            user_input_key = "user_input"+key_suffix
+            output_key = "output"+key_suffix
+            def process_user_input():
+                user_input = st.session_state[user_input_key]
+                st.session_state['llm_messages'].append({"role": "user", "content": user_input + f"Write only the query with no formatting, use only the schema available here: \n{label_json}"})
+                output = get_assistant_response(st.session_state['llm_messages']).strip("`")
+                st.session_state[output_key] = output
+
+            if use_llm:
+                st.text_area(label=query_label, placeholder="Enter text here", key=user_input_key, on_change=process_user_input)
+            else:
+                st.session_state[output_key] = None
+
+
+            if output_key in st.session_state:
+                if not use_llm:
+                    st.text(query_label)
+                response_dict = code_editor(st.session_state[output_key], lang="sql",
+                                            key='code'+key_suffix, allow_reset=True)
                 if len(response_dict['text']) > 0:
-                    st.session_state['output'] = response_dict['text']
-                print(st.session_state['output'])
+                    st.session_state[output_key] = response_dict['text']
+
                 # Button to run the query
-                if st.button("Run Query"):
+                if st.button(button_label):
                     # Save clicked status in the session state
                     st.session_state['query_clicked'] = True
-                
+
                     # Check if the button was clicked
                     if st.session_state.get('query_clicked'):
                         # Run the query and get the result
                         try:
-                            result = run_cypher_query(st.session_state["output"])
+                            result = run_cypher_query(st.session_state[output_key])
                         except Exception as e:
-                            raise e                    
-                        # Handle different cases based on the query result
+                            raise e
+                            # Handle different cases based on the query result
                         if result is None:
-                            st.error("Oh no, an error occurred while running the query.")
+                            st.error(
+                                "Oh no, an error occurred while running the query.")
                         elif len(result) == 0:
                             st.warning("Oh no, empty list!")
                         else:
                             st.write(result)
+
+
+        with st.spinner('Asking ChatGPT...'):
+            process_query(use_llm=True)
+
+        # User defined Cypher query
+        process_query(use_llm=False)
 
 
         driver.close()
