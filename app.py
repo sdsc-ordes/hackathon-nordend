@@ -8,7 +8,7 @@ import json
 import os
 import pandas as pd
 from openai import OpenAI
-from code_editor import code_editor
+
 # Setting the API key
 
 
@@ -78,16 +78,21 @@ def get_relationship_count(tx):
     result = tx.run("MATCH ()-[r]->() RETURN count(r) AS count")
     return result.single()["count"]
 
-
 # Function to query node labels
 def get_node_labels(tx):
     result = tx.run("MATCH (n) RETURN DISTINCT labels(n) AS labels")
     return [record["labels"][0] for record in result if record["labels"]]
 
-
+def get_top_n_nodes_counts(tx, limit):
+    query = f"""
+        MATCH (n)
+        RETURN labels(n) AS Name, count(n) AS Count
+        ORDER BY Count DESC
+        LIMIT {limit};
+    """
+    return tx.run(query).to_df()
 
 # Function to query relationships between node labels
-
 def get_properties(tx):
     result = tx.run("""CALL db.schema.nodeTypeProperties()
         YIELD nodeLabels, propertyName
@@ -167,16 +172,19 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
             col2.metric("Number of Relationships", relationship_count)
             col3.metric("Entity Types", len(node_labels))
 
+            limit = 10
+            st.subheader(f"The {limit} nodes with most occurrences are:")
+            st.write(session.execute_read(get_top_n_nodes_counts, limit))
 
-            # List entity (node) names
-            st.subheader("Entity Names")
-
+            # List entity (node) names with their properties
+            st.subheader("The properties of each node are:")
             node_properties_labels = []
             label_dict = {}
             for label in node_labels:
                 node_properties_labels = list(set(session.execute_read(get_all_node_properties_with_labels,label)))
                 label_dict[label] = node_properties_labels
-            st.write(label_dict)
+            st.json(label_dict, expanded=False)
+
             label_json = json.dumps(label_dict)
             relationships = session.execute_read(get_relationship_types)
 
@@ -214,22 +222,12 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
                     label_dict[label]['properties'] = sorted(node_properties_labels)
                     label_dict[label]['outgoing_relations'] = sorted([item for item in all_relationships if item.startswith(label)])
                     label_dict[label]['ingoing_relations'] = sorted([item for item in all_relationships if item.endswith(label) if not item.startswith(label)])
-            st.subheader("Schema Overview")
-            st.write(label_dict)
+
+            with st.expander("See full relationships list:", expanded=False):
+                st.write(label_dict)
+
             label_json = json.dumps(label_dict)
 
-
-            #Display cards with the graph statistics
-            st.subheader("Graph Statistics")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Number of Nodes", node_count)
-            col2.metric("Number of Relationships", relationship_count)
-            col3.metric("Entity Types", len(node_labels))
-            col1, col2 = st.columns(2)
-
-            # List entity (node) names
-            col1.write(statistics)
-            #col2.write(all_labels_df)
 
         #Plot the graph using NetworkX and matplotlib
         plt.figure(figsize=(8, 6))
