@@ -8,6 +8,7 @@ import json
 import os
 import pandas as pd
 from openai import OpenAI
+from code_editor import code_editor
 
 # Setting the API key
 
@@ -18,7 +19,7 @@ from openai import OpenAI
 def get_assistant_response(messages):
     client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     r = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=[{"role": m["role"], "content": m["content"]} for m in messages],
     )
     response = r.choices[0].message.content
@@ -186,6 +187,23 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
             st.json(label_dict, expanded=False)
 
             label_json = json.dumps(label_dict)
+            def update_dict_with_descriptions(main_dict, description_list):
+                for item in description_list:
+                    label = item['label']
+                    description = item['description']
+                    properties = item['properties']
+                    
+                    # Check if the label exists in the main dictionary
+                    if label in main_dict:
+                        # Add the description
+                        main_dict[label]['description'] = description
+            
+                        # Append the property descriptions to the 'properties' list
+                        for i, prop_desc in enumerate(properties):
+                            for i,element in enumerate(main_dict[label]['properties']):
+                                if element == prop_desc['property_name']:
+                                    main_dict[label]['properties'][i] = main_dict[label]['properties'][i] + "\n" + prop_desc['property_description']
+                return main_dict
             relationships = session.execute_read(get_relationship_types)
 
             #st.subheader("Relationship names")
@@ -222,7 +240,15 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
                     label_dict[label]['properties'] = sorted(node_properties_labels)
                     label_dict[label]['outgoing_relations'] = sorted([item for item in all_relationships if item.startswith(label)])
                     label_dict[label]['ingoing_relations'] = sorted([item for item in all_relationships if item.endswith(label) if not item.startswith(label)])
+            def open_jsonl_file(file_path):
+                with open(file_path, 'r') as f:
+                    json_objects = []
+                    for line in f:
+                        json_objects.append(json.loads(line))  # Parse each line into a JSON object
+                return json_objects
+            label_json_desc = open_jsonl_file('schema_description.jsonl')
 
+            update_dict_with_descriptions(label_dict, label_json_desc)
             with st.expander("See full relationships list:", expanded=False):
                 st.write(label_dict)
 
@@ -265,27 +291,25 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
         #Call the function to visualize
         #visualize_graph(G)
         prompts = [f"""Generate a neo4j cypher query corresponding to the natural language question given by the user. Only return formatted Cypher queries. Keep in mind you can only use the following nodes, edges, relationships and properties:
-                   For each node label, use only the following properties and relationships:
+                   For each node label, use only the following schema:
                    {label_json}
 
-                   Example:
-                   User : provide me last names of representatives of canton ZH.
-                   Model : MATCH (canton:Canton {{abbrev: 'ZH'}})<-[:REPRESENTS]-(person:Person)
-                    RETURN person.first_name, person.last_name
-
-                   """
-                   ]
+                   Pay attention to the descriptions. For example, do not search for an element in english if the field only contains elements in german.
+                   """]
         st.session_state['llm_messages'] = [{"role": "system", "content": prompts[0]},]
 
         def process_user_input():
             user_input = st.session_state["user_input"]
             st.session_state['llm_messages'].append({"role": "user", "content" : user_input + f"Write only the query with no formatting, use only the schema available here: \n{label_json}" })
             output = get_assistant_response(st.session_state['llm_messages'])
-            st.session_state["output"] = output
+            st.session_state["output"] = output.strip("`")
         with st.spinner('Asking ChatGPT...'):
             st.text_area(label="User Input", placeholder="Enter stuff here", key="user_input", on_change=process_user_input)
             if "output" in st.session_state:
-                st.code(st.session_state["output"],language="cypher")
+                response_dict = code_editor(st.session_state["output"],lang="sql", key='code', allow_reset=True)
+                if len(response_dict['text']) > 0:
+                    st.session_state['output'] = response_dict['text']
+                print(st.session_state['output'])
                 # Button to run the query
                 if st.button("Run Query"):
                     # Save clicked status in the session state
