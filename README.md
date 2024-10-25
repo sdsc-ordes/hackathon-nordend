@@ -12,9 +12,18 @@ In order to run de-cypher, you need the following:
 - A Neo4J property graph, exposed to your local network. By default, when initializing a DB in Neo4j, it will be exposed on [Bolt port](https://neo4j.com/docs/operations-manual/current/configuration/connectors/) bolt://localhost:7687. Make sure to remember the username and password set when initializing the DB, as you will need this later in the front-end to access the DB.
 - A question for the data!
 
+1. enter your python environemtn
+2. `pip install -r requirements.txt`
+3. Initialize your neo4j database, make sure to import the neo4j.dump file
+4. start the database
+5. run `python streamlit run app.py`
+6. login on the frontend (check the terminal for the port to use in your case, usually localhost:8501)
+7. login on the front end using your neo4j username and password which you created when initializing the database
+8. validate your graph loaded correctly by checking the statistics
+9. enter a natural language question
+10. watit for the model to return a query and run it!
+
 ## Features
 - Neo4J connector
 - Standard statistical queries for some data metrics and extracting the schema (relationships & properties) that can be used to query
-
-## Demo
-{gif here}
+- Iterative LLM powered query window
