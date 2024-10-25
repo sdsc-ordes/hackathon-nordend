@@ -178,13 +178,11 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
             st.write(session.execute_read(get_top_n_nodes_counts, limit))
 
             # List entity (node) names with their properties
-            st.subheader("The properties of each node are:")
             node_properties_labels = []
             label_dict = {}
             for label in node_labels:
                 node_properties_labels = list(set(session.execute_read(get_all_node_properties_with_labels,label)))
                 label_dict[label] = node_properties_labels
-            st.json(label_dict, expanded=False)
 
             label_json = json.dumps(label_dict)
             def update_dict_with_descriptions(main_dict, description_list):
@@ -205,9 +203,6 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
                                     main_dict[label]['properties'][i] = main_dict[label]['properties'][i] + "\n" + prop_desc['property_description']
                 return main_dict
             relationships = session.execute_read(get_relationship_types)
-
-            #st.subheader("Relationship names")
-            #st.write(", ".join(relationships))
 
             node_labels = sorted(node_labels)
             node_properties_labels = []
@@ -233,8 +228,7 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
             all_labels_df = pd.DataFrame()
             with st.spinner('Distilling the graph...'):
                 for label in node_labels:
-                    #label_df = session.execute_read(get_property_counts,label)
-                    #all_labels_df = pd.concat([all_labels_df,label_df])
+
                     node_properties_labels = list(set(session.execute_read(get_all_node_properties_with_labels,label)))
                     label_dict[label] = {}
                     label_dict[label]['properties'] = sorted(node_properties_labels)
@@ -309,7 +303,6 @@ if 'connected' in st.session_state or st.sidebar.button("Connect"):
                 response_dict = code_editor(st.session_state["output"],lang="sql", key='code', allow_reset=True)
                 if len(response_dict['text']) > 0:
                     st.session_state['output'] = response_dict['text']
-                print(st.session_state['output'])
                 # Button to run the query
                 if st.button("Run Query"):
                     # Save clicked status in the session state
