@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  neo4j:
+    image: neo4j:5.6  # Neo4j version 5.6 as an example; adjust as needed
+    environment:
+      - NEO4J_AUTH=${NEO4J_USERNAME}/${NEO4J_PASSWORD}  # set these in a .env file in same folder 
+    ports:
+      - "7474:7474"  # Neo4j Browser
+      - "7687:7687"  # Neo4j Bolt protocol
+    volumes:
+      - neo4j_data:/data  # Persist data
+
+  streamlit:
+    image: streamlit/streamlit:latest  # Using latest official Streamlit image
+    volumes:
+      - .:/app  # Mount the current directory to /app in the container
+    working_dir: /app  # Set working directory to /app
+    command: streamlit run app.py  # Replace with the name of your Streamlit app file
+    ports:
+      - "8501:8501"
+    depends_on:
+      - neo4j  # Ensure Neo4j is started before Streamlit
+
+volumes:
+  neo4j_data:  # Named volume for Neo4j data storage
