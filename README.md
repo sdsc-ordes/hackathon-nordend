@@ -21,7 +21,7 @@ In order to run de-cypher, you need the following:
 7. login on the front end using your neo4j username and password which you created when initializing the database
 8. validate your graph loaded correctly by checking the statistics
 9. enter a natural language question
-10. watit for the model to return a query and run it!
+10. wait for the model to return a query and run it!
 
 ## Features
 - Neo4J connector
