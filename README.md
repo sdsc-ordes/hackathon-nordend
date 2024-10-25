@@ -12,7 +12,7 @@ In order to run de-cypher, you need the following:
 - A Neo4J property graph, exposed to your local network. By default, when initializing a DB in Neo4j, it will be exposed on [Bolt port](https://neo4j.com/docs/operations-manual/current/configuration/connectors/) bolt://localhost:7687. Make sure to remember the username and password set when initializing the DB, as you will need this later in the front-end to access the DB.
 - A question for the data!
 
-1. enter your python environemtn
+1. enter your python environment
 2. `pip install -r requirements.txt`
 3. Initialize your neo4j database, make sure to import the neo4j.dump file
 4. start the database
